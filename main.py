@@ -4,11 +4,14 @@ import shutil
 import struct
 import sys
 
+HASH_CHUNK_SIZE = 65536
+MAX_ARTWORK_BYTES = 1048576
+
 
 def sha256(path):
     digest = hashlib.sha256()
     with open(path, "rb") as image_file:
-        for chunk in iter(lambda: image_file.read(65536), b""):
+        for chunk in iter(lambda: image_file.read(HASH_CHUNK_SIZE), b""):
             digest.update(chunk)
     return digest.hexdigest()
 
@@ -16,6 +19,28 @@ def sha256(path):
 def fail(message):
     print(f"Error: {message}", file=sys.stderr)
     raise SystemExit(1)
+
+
+def validate_image(path):
+    try:
+        with open(path, "rb") as image_file:
+            header = image_file.read(24)
+    except OSError as error:
+        fail(f"cannot inspect copied image {path}: {error}")
+
+    png_signature = b"\x89PNG\r\n\x1a\n"
+    if header.startswith(png_signature):
+        if len(header) < 24 or header[12:16] != b"IHDR":
+            fail(f"PNG header is incomplete or missing IHDR: {path}")
+        width, height = struct.unpack(">II", header[16:24])
+        if width > 1024 or height > 1024:
+            fail(f"PNG dimensions are larger than 1024 pixels: {width}x{height}")
+        return
+
+    if header.startswith(b"\xff\xd8\xff"):
+        return
+
+    fail(f"copied image is neither PNG nor JPEG: {path}")
 
 
 def main():
@@ -31,7 +56,7 @@ def main():
     except OSError as error:
         fail(f"could not inspect source file {source}: {error}")
 
-    if source_size > 1048576:
+    if source_size > MAX_ARTWORK_BYTES:
         fail(f"artwork exceeds the 1 MiB size limit: {source_size} bytes")
 
     try:
@@ -40,23 +65,7 @@ def main():
     except OSError as error:
         fail(f"could not copy artwork to {destination}: {error}")
 
-    try:
-        with open(destination, "rb") as output_file:
-            image_header = output_file.read(24)
-    except OSError as error:
-        fail(f"could not read copied artwork {destination}: {error}")
-
-    is_png = image_header[:8] == b"\x89PNG\r\n\x1a\n"
-    is_jpeg = image_header.startswith(b"\xff\xd8\xff")
-    if not (is_png or is_jpeg):
-        fail(f"copied file has an unsupported image format: {destination}")
-
-    if is_png:
-        if len(image_header) < 24 or image_header[12:16] != b"IHDR":
-            fail(f"copied PNG has an invalid IHDR chunk: {destination}")
-        width, height = struct.unpack(">II", image_header[16:24])
-        if width > 1024 or height > 1024:
-            fail(f"PNG dimensions exceed 1024 pixels: {width}x{height}")
+    validate_image(destination)
 
     try:
         output_size = os.path.getsize(destination)
