@@ -14,6 +14,12 @@ news-image-01 bounty. Three main stories, plus four more in the ticker strip.
 mkdir -p out && MAKEFUN_OUTPUT_DIR=out python3 main.py
 ```
 
+## Deterministic output
+
+The program has no network access, randomness, or clock-dependent behavior.
+It copies the entry image byte for byte and verifies the result, so the output
+is identical to the source image.
+
 ## Verify
 
 ```sh
